@@ -1,2 +1,2 @@
 # Vibe-Code-Editor
-Vibe Code Editor : Browser Based Interative IDE
+Vibe Code Editor : Browser Based Interactive IDE
