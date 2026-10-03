@@ -101,13 +101,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
     async session({ session, token }) {
       // Attach the user ID from the token to the session
-    if(token.sub  && session.user){
-      session.user.id = token.sub
-    } 
+      if(token.sub  && session.user){
+        session.user.id = token.sub
+      } 
 
-    if(token.sub && session.user){
-      session.user.role = token.role
-    }
+      if(token.sub && session.user){
+        session.user.role = token.role
+      }
 
     return session;
     },
