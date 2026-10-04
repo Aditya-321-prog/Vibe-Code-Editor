@@ -1,0 +1,24 @@
+name: Test
+
+on:
+  pull_request:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "npm"
+
+      - run: npm ci --prefer-offline --no-audit
+
+      - name: Install Playwright Dependencies
+        run: npx playwright install chromium --with-deps --only-shell
+
+      - run: npm run test -- --project chromium
