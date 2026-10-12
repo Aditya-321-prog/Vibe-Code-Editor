@@ -40,8 +40,8 @@ export const PlaygroundEditor = ({
   const isAcceptingSuggestionRef = useRef(false)
   const suggestionAcceptedRef = useRef(false)
   const suggestionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const tabCommandRef = useRef<any>(null)
-
+  const tabCommandRef = useRef<{ dispose: () => void } | null>(null)
+  
   // Generate unique ID for each suggestion
   const generateSuggestionId = () => `suggestion-${Date.now()}-${Math.random()}`
 
@@ -343,53 +343,71 @@ export const PlaygroundEditor = ({
       console.log("Ctrl+Space pressed, triggering suggestion")
       onTriggerSuggestion("completion", editor)
     })
+// Override Tab key to handle AI suggestions
+if (tabCommandRef.current) {
+  tabCommandRef.current.dispose()
+  tabCommandRef.current = null
+}
 
-    // CRITICAL: Override Tab key with high priority and prevent default Monaco behavior
-    if (tabCommandRef.current) {
-      tabCommandRef.current.dispose()
+tabCommandRef.current = editor.addAction({
+  id: "vibecode.acceptSuggestionWithTab",
+  label: "Accept AI suggestion with Tab",
+  keybindings: [monaco.KeyCode.Tab],
+  keybindingContext:
+    "editorTextFocus && !editorReadonly && !suggestWidgetVisible",
+
+  run: () => {
+    console.log("TAB PRESSED", {
+      hasSuggestion: !!currentSuggestionRef.current,
+      hasActiveSuggestion: hasActiveSuggestionAtPosition(),
+      isAccepting: isAcceptingSuggestionRef.current,
+      suggestionAccepted: suggestionAcceptedRef.current,
+    })
+
+    // Block if already processing
+    if (isAcceptingSuggestionRef.current) {
+      console.log(
+        "BLOCKED: Already in the process of accepting, ignoring Tab"
+      )
+      return
     }
 
-    tabCommandRef.current = editor.addCommand(
-      monaco.KeyCode.Tab,
-      () => {
-        console.log("TAB PRESSED", {
-          hasSuggestion: !!currentSuggestionRef.current,
-          hasActiveSuggestion: hasActiveSuggestionAtPosition(),
-          isAccepting: isAcceptingSuggestionRef.current,
-          suggestionAccepted: suggestionAcceptedRef.current,
-        })
+    // Block if the suggestion was just accepted
+    if (suggestionAcceptedRef.current) {
+      console.log(
+        "BLOCKED: Suggestion was just accepted, using default tab"
+      )
+      editor.trigger("keyboard", "tab", null)
+      return
+    }
 
-        // CRITICAL: Block if already processing
-        if (isAcceptingSuggestionRef.current) {
-          console.log("BLOCKED: Already in the process of accepting, ignoring Tab")
-          return
-        }
+    // Accept the active suggestion at the current position
+    if (
+      currentSuggestionRef.current &&
+      hasActiveSuggestionAtPosition()
+    ) {
+      console.log("ATTEMPTING to accept suggestion with Tab")
 
-        // CRITICAL: Block if just accepted
-        if (suggestionAcceptedRef.current) {
-          console.log("BLOCKED: Suggestion was just accepted, using default tab")
-          editor.trigger("keyboard", "tab", null)
-          return
-        }
+      const accepted = acceptCurrentSuggestion()
 
-        // If we have an active suggestion at the current position, try to accept it
-        if (currentSuggestionRef.current && hasActiveSuggestionAtPosition()) {
-          console.log("ATTEMPTING to accept suggestion with Tab")
-          const accepted = acceptCurrentSuggestion()
-          if (accepted) {
-            console.log("SUCCESS: Suggestion accepted via Tab, preventing default behavior")
-            return // CRITICAL: Return here to prevent default tab behavior
-          }
-          console.log("FAILED: Suggestion acceptance failed, falling through to default")
-        }
+      if (accepted) {
+        console.log(
+          "SUCCESS: Suggestion accepted via Tab, preventing default behavior"
+        )
+        return
+      }
 
-        // Default tab behavior (indentation)
-        console.log("DEFAULT: Using default tab behavior")
-        editor.trigger("keyboard", "tab", null)
-      },
-      // CRITICAL: Use specific context to override Monaco's built-in Tab handling
-      "editorTextFocus && !editorReadonly && !suggestWidgetVisible",
-    )
+      console.log(
+        "FAILED: Suggestion acceptance failed, falling through to default"
+      )
+    }
+
+    // Default Tab behavior (indentation)
+    console.log("DEFAULT: Using default tab behavior")
+    editor.trigger("keyboard", "tab", null)
+  },
+})
+
 
     // Escape to reject
     editor.addCommand(monaco.KeyCode.Escape, () => {
