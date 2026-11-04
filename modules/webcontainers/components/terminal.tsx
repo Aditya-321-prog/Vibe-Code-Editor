@@ -16,6 +16,8 @@ interface TerminalProps {
   className?: string;
   theme?: "dark" | "light";
   webContainerInstance?: any;
+
+  terminalApiRef?: React.Ref<TerminalRef>;
 }
 
 // Define the methods that will be exposed through the ref
@@ -25,12 +27,13 @@ export interface TerminalRef {
   focusTerminal: () => void;
 }
 
-const 
-TerminalComponent = forwardRef<TerminalRef, TerminalProps>(({ 
-  webcontainerUrl, 
+
+const TerminalComponent = forwardRef<TerminalRef, TerminalProps>(({
+  webcontainerUrl,
   className,
   theme = "dark",
-  webContainerInstance
+  webContainerInstance,
+  terminalApiRef
 }, ref) => {
   const terminalRef = useRef<HTMLDivElement>(null);
   const term = useRef<Terminal | null>(null);
@@ -106,7 +109,7 @@ TerminalComponent = forwardRef<TerminalRef, TerminalProps>(({
   }, []);
 
   // Expose methods through ref
-  useImperativeHandle(ref, () => ({
+useImperativeHandle(terminalApiRef ?? ref, () => ({
     writeToTerminal: (data: string) => {
       if (term.current) {
         term.current.write(data);

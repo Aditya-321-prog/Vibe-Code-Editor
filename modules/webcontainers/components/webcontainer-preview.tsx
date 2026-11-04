@@ -7,7 +7,20 @@ import { Progress } from "@/components/ui/progress";
 
 import { WebContainer } from "@webcontainer/api";
 import { TemplateFolder } from "@/modules/playground/lib/path-to-json";
-import TerminalComponent from "./terminal";
+// import TerminalComponent from "./terminal";
+import dynamic from "next/dynamic";
+
+const TerminalComponent = dynamic(
+  () => import("./terminal"),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="h-full flex items-center justify-center">
+        Loading terminal...
+      </div>
+    ),
+  }
+);
 
 interface WebContainerPreviewProps {
   templateData: TemplateFolder;
@@ -334,11 +347,11 @@ const WebContainerPreview = ({
           {/* Terminal */}
           <div className="flex-1 p-4">
             <TerminalComponent
-              ref={terminalRef}
-              webContainerInstance={instance}
-              theme="dark"
-              className="h-full"
-            />
+  terminalApiRef={terminalRef}
+  webContainerInstance={instance}
+  theme="dark"
+  className="h-full"
+/>
           </div>
         </div>
       ) : (
@@ -353,11 +366,11 @@ const WebContainerPreview = ({
 
           <div className="h-64 border-t">
             <TerminalComponent
-              ref={terminalRef}
-              webContainerInstance={instance}
-              theme="dark"
-              className="h-full"
-            />
+  terminalApiRef={terminalRef}
+  webContainerInstance={instance}
+  theme="dark"
+  className="h-full"
+/>
           </div>
         </div>
       )}
