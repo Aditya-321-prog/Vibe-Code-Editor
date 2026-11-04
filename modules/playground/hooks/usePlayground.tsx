@@ -82,7 +82,10 @@ export const usePlayground = (id: string): UsePlaygroundReturn => {
 
   const saveTemplateData = useCallback(async(data:TemplateFolder)=>{
     try {
-          await SaveUpdatedCode(id, data);
+      // SaveUpdatedCode returns null (instead of throwing) when the user is not
+      // logged in or the DB write fails — don't report that as a success.
+      const result = await SaveUpdatedCode(id, data);
+      if (!result) throw new Error("SaveUpdatedCode returned null");
       setTemplateData(data);
       toast.success("Changes saved successfully");
     } catch (error) {

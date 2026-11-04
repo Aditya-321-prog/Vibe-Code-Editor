@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { WebContainer } from "@webcontainer/api";
 import { TemplateFolder } from "@/modules/playground/lib/path-to-json";
 
@@ -23,14 +23,33 @@ export const useWebContainer = ({
   const [error, setError] = useState<string | null>(null);
   const [instance, setInstance] = useState<WebContainer | null>(null);
 
+  // Ref so the unmount cleanup sees the real instance (the `instance` state in
+  // the effect closure is always null, so teardown never ran before).
+  const instanceRef = useRef<WebContainer | null>(null);
+
   useEffect(() => {
     let mounted = true;
+    let unsubscribeServerReady: (() => void) | undefined;
 
     async function initializeWebContainer() {
       try {
         const webcontainerInstance = await WebContainer.boot();
 
-        if (!mounted) return;
+        if (!mounted) {
+          webcontainerInstance.teardown();
+          return;
+        }
+
+        instanceRef.current = webcontainerInstance;
+
+        // Listen once, at the hook level, so the URL survives the preview
+        // component unmounting/remounting (hide/show preview, closing all tabs).
+        unsubscribeServerReady = webcontainerInstance.on(
+          "server-ready",
+          (_port, url) => {
+            if (mounted) setServerUrl(url);
+          }
+        );
 
         setInstance(webcontainerInstance);
         setIsLoading(false);
@@ -51,9 +70,9 @@ export const useWebContainer = ({
 
     return () => {
       mounted = false;
-      if (instance) {
-        instance.teardown();
-      }
+      unsubscribeServerReady?.();
+      instanceRef.current?.teardown();
+      instanceRef.current = null;
     };
   }, []);
 
@@ -85,6 +104,7 @@ export const useWebContainer = ({
   const destory = useCallback(()=>{
     if(instance){
         instance.teardown()
+        instanceRef.current = null;
         setInstance(null);
         setServerUrl(null)
     }

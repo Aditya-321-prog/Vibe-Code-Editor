@@ -2,7 +2,7 @@
 import React, { useEffect, useState, useRef } from "react";
 
 import { transformToWebContainerFormat } from "../hooks/transformer";
-import { CheckCircle, Loader2, XCircle } from "lucide-react";
+import { CheckCircle, Loader2, RotateCw, XCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 
 import { WebContainer } from "@webcontainer/api";
@@ -41,6 +41,7 @@ const WebContainerPreview = ({
   forceResetup = false,
 }: WebContainerPreviewProps) => {
   const [previewUrl, setPreviewUrl] = useState<string>("");
+  const [iframeKey, setIframeKey] = useState(0);
   const [loadingState, setLoadingState] = useState({
     transforming: false,
     mounting: false,
@@ -88,27 +89,14 @@ const WebContainerPreview = ({
           );
 
           if (packageJsonExists) {
-            // Files are already mounted, just reconnect to existing server
+            // Files are already mounted and the server is already running.
+            // "server-ready" has already fired and will NOT fire again, so we
+            // rely on the serverUrl tracked by useWebContainer (effect below).
             if (terminalRef.current?.writeToTerminal) {
               terminalRef.current.writeToTerminal(
                 "🔄 Reconnecting to existing WebContainer session...\r\n"
               );
             }
-
-            instance.on("server-ready", (port: number, url: string) => {
-              if (terminalRef.current?.writeToTerminal) {
-                terminalRef.current.writeToTerminal(
-                  `🌐 Reconnected to server at ${url}\r\n`
-                );
-              }
-
-              setPreviewUrl(url);
-              setLoadingState((prev) => ({
-                ...prev,
-                starting: false,
-                ready: true,
-              }));
-            });
 
             setCurrentStep(4);
             setLoadingState((prev) => ({ ...prev, starting: true }));
@@ -205,7 +193,15 @@ const WebContainerPreview = ({
           );
         }
 
-        const startProcess = await instance.spawn("npm", ["run", "start"]);
+        const startProcess = await instance.spawn("npm", ["run", "start"], {
+          env: {
+            // CRA (react-scripts 5) hard-codes the HMR websocket to port 3000,
+            // but the WebContainer preview is served on 443, so hot reload
+            // silently fails and saved changes never show up. "0" makes the
+            // client use the page's own port. Ignored by non-CRA servers.
+            WDS_SOCKET_PORT: "0",
+          },
+        });
 
         instance.on("server-ready", (port: number, url: string) => {
           if (terminalRef.current?.writeToTerminal) {
@@ -254,9 +250,9 @@ const WebContainerPreview = ({
     setupContainer();
   }, [instance, templateData, isSetupComplete, isSetupInProgress]);
 
-  useEffect(() => {
-    return () => {};
-  }, []);
+  // serverUrl comes from useWebContainer and survives this component
+  // remounting (hide/show preview, closing all tabs), unlike local state.
+  const activeUrl = serverUrl || previewUrl;
 
   if (isLoading) {
     return (
@@ -316,7 +312,7 @@ const WebContainerPreview = ({
 
   return (
     <div className="h-full w-full flex flex-col">
-      {!previewUrl ? (
+      {!activeUrl ? (
         <div className="h-full flex flex-col">
           <div className="w-full max-w-md p-6 m-5 rounded-lg bg-white dark:bg-zinc-800 shadow-sm mx-auto">
             <Progress
@@ -356,9 +352,21 @@ const WebContainerPreview = ({
         </div>
       ) : (
         <div className="h-full flex flex-col">
+          <div className="flex items-center gap-2 border-b px-2 py-1 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setIframeKey((k) => k + 1)}
+              className="rounded p-1 hover:bg-muted"
+              title="Refresh preview"
+            >
+              <RotateCw className="h-3.5 w-3.5" />
+            </button>
+            <span className="truncate">{activeUrl}</span>
+          </div>
           <div className="flex-1">
             <iframe
-              src={previewUrl}
+              key={iframeKey}
+              src={activeUrl}
               className="w-full h-full border-none"
               title="WebContainer Preview"
             />

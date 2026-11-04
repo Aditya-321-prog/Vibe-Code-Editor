@@ -28,7 +28,10 @@ import ToggleAI from "@/modules/playground/components/toggle-ai";
 import { useAISuggestions } from "@/modules/playground/hooks/useAISuggestion";
 import { useFileExplorer } from "@/modules/playground/hooks/useFileExplorer";
 import { usePlayground } from "@/modules/playground/hooks/usePlayground";
-import { findFilePath } from "@/modules/playground/lib";
+import {
+	findFilePath,
+	updateFileContentByPath,
+} from "@/modules/playground/lib";
 import {
 	TemplateFile,
 	TemplateFolder,
@@ -178,15 +181,23 @@ const MainPlaygroundPage = () => {
 
 	const handleSave = useCallback(
 		async (fileId?: string) => {
-			const targetFileId = fileId || activeFileId;
+			// Always read fresh store state: Save All calls this several times in a
+			// row, and a stale `openFiles` / `templateData` closure would make each
+			// save overwrite the previous one.
+			const {
+				openFiles: currentOpenFiles,
+				activeFileId: currentActiveFileId,
+				templateData: latestTemplateData,
+			} = useFileExplorer.getState();
+
+			const targetFileId = fileId || currentActiveFileId;
 			if (!targetFileId) return;
 
-			const fileToSave = openFiles.find((f) => f.id === targetFileId);
-
+			const fileToSave = currentOpenFiles.find((f) => f.id === targetFileId);
 			if (!fileToSave) return;
-
-			const latestTemplateData = useFileExplorer.getState().templateData;
 			if (!latestTemplateData) return;
+
+			const savedContent = fileToSave.content;
 
 			try {
 				const filePath = findFilePath(fileToSave, latestTemplateData);
@@ -197,49 +208,40 @@ const MainPlaygroundPage = () => {
 					return;
 				}
 
-				const updatedTemplateData = JSON.parse(
+				const updatedTemplateData: TemplateFolder = JSON.parse(
 					JSON.stringify(latestTemplateData),
 				);
 
-				// @ts-ignore
-        const updateFileContent = (items: any[]) => {
-          return items.map((item) => {
-            if (item.id === fileToSave.id) {
-              return { ...item, content: fileToSave.content }
-            }
+				// Template items have no `id`, and files usually live in sub-folders
+				// (src/App.tsx), so update the file by its path, recursively.
+				if (
+					!updateFileContentByPath(updatedTemplateData, filePath, savedContent)
+				) {
+					toast.error(`Could not update ${filePath}`);
+					return;
+				}
 
-            return item
-          })
-        }
-
-				updatedTemplateData.items = updateFileContent(
-					updatedTemplateData.items,
-				);
-
-				// Sync with WebContainer
-				if (writeFileSync) {
-					await writeFileSync(filePath, fileToSave.content);
-					lastSyncedContent.current.set(fileToSave.id, fileToSave.content);
-					if (instance && instance.fs) {
-						await instance.fs.writeFile(filePath, fileToSave.content);
-					}
+				// Write to the WebContainer so the dev server picks up the change
+				if (instance) {
+					await writeFileSync(filePath, savedContent);
+					lastSyncedContent.current.set(fileToSave.id, savedContent);
 				}
 
 				await saveTemplateData(updatedTemplateData);
+				setTemplateData(updatedTemplateData);
 
-        setTemplateData(updatedTemplateData);
-				// Update open files
-				const updatedOpenFiles = openFiles.map((f) =>
-					f.id === targetFileId
-						? {
-								...f,
-								content: fileToSave.content,
-								originalContent: fileToSave.content,
-								hasUnsavedChanges: false,
-							}
-						: f,
+				// Mark as saved (keep anything typed while the save was running)
+				setOpenFiles(
+					useFileExplorer.getState().openFiles.map((f) =>
+						f.id === targetFileId
+							? {
+									...f,
+									originalContent: savedContent,
+									hasUnsavedChanges: f.content !== savedContent,
+								}
+							: f,
+					),
 				);
-				setOpenFiles(updatedOpenFiles);
 
 				toast.success(
 					`Saved ${fileToSave.filename}.${fileToSave.fileExtension}`,
@@ -252,15 +254,7 @@ const MainPlaygroundPage = () => {
 				throw error;
 			}
 		},
-		[
-			activeFileId,
-			openFiles,
-			writeFileSync,
-			instance,
-			saveTemplateData,
-			setTemplateData,
-			setOpenFiles,
-		],
+		[writeFileSync, instance, saveTemplateData, setTemplateData, setOpenFiles],
 	);
 
 	const handleSaveAll = async () => {
@@ -272,7 +266,10 @@ const MainPlaygroundPage = () => {
 		}
 
 		try {
-			await Promise.all(unsavedFiles.map((f) => handleSave(f.id)));
+			// One at a time, so each save builds on the previous one's templateData
+			for (const f of unsavedFiles) {
+				await handleSave(f.id);
+			}
 			toast.success(`Saved ${unsavedFiles.length} file(s)`);
 		} catch (error) {
 			toast.error("Failed to save some files");
@@ -522,7 +519,7 @@ const MainPlaygroundPage = () => {
 														writeFileSync={writeFileSync}
 														isLoading={containerLoading}
 														error={containerError}
-														serverUrl={serverUrl!}
+														serverUrl={serverUrl ?? ""}
 														forceResetup={false}
 													/>
 												</ResizablePanel>
